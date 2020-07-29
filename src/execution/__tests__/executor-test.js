@@ -3,6 +3,7 @@ import { describe, it } from 'mocha';
 
 import inspect from '../../jsutils/inspect';
 import invariant from '../../jsutils/invariant';
+import isAsyncIterable from '../../jsutils/isAsyncIterable';
 
 import { Kind } from '../../language/kinds';
 import { parse } from '../../language/parser';
@@ -283,6 +284,7 @@ describe('Execute: Handles basic execution tasks', () => {
       'returnType',
       'parentType',
       'path',
+      'labels',
       'schema',
       'fragments',
       'rootValue',
@@ -367,6 +369,188 @@ describe('Execute: Handles basic execution tasks', () => {
         },
       },
     });
+  });
+
+  it('populates labels array with labels from nested defer fragments', async () => {
+    let labels;
+    const someObject = new GraphQLObjectType({
+      name: 'SomeObject',
+      fields: {
+        test: {
+          type: GraphQLString,
+          resolve(_val, _args, _ctx, info) {
+            labels = info.labels;
+          },
+        },
+      },
+    });
+    const someUnion = new GraphQLUnionType({
+      name: 'SomeUnion',
+      types: [someObject],
+      resolveType() {
+        return 'SomeObject';
+      },
+    });
+    const testType = new GraphQLObjectType({
+      name: 'SomeQuery',
+      fields: {
+        test: {
+          type: new GraphQLNonNull(
+            new GraphQLList(new GraphQLNonNull(someUnion)),
+          ),
+        },
+      },
+    });
+    const schema = new GraphQLSchema({
+      query: testType,
+      experimentalDefer: true,
+    });
+    const rootValue = { test: [{}] };
+    const document = parse(`
+      query {
+        ... on SomeQuery @defer(label: "Label1") {
+          l1: test {
+            ... on SomeObject @defer(label: "Label2") {
+              l2: test
+            }
+          }
+        }  
+      }
+    `);
+
+    const result = await execute({ schema, document, rootValue });
+    const patches = [];
+
+    /* istanbul ignore else  - if result is not an asyncIterable, tests will fail as expected */
+    if (isAsyncIterable(result)) {
+      for await (const patch of result) {
+        patches.push(patch);
+      }
+    }
+
+    expect(labels).to.deep.equal(['Label1', 'Label2']);
+  });
+
+  it('populates labels array with undefined when necessary', async () => {
+    let labels;
+    const someObject = new GraphQLObjectType({
+      name: 'SomeObject',
+      fields: {
+        test: {
+          type: GraphQLString,
+          resolve(_val, _args, _ctx, info) {
+            labels = info.labels;
+          },
+        },
+      },
+    });
+    const someUnion = new GraphQLUnionType({
+      name: 'SomeUnion',
+      types: [someObject],
+      resolveType() {
+        return 'SomeObject';
+      },
+    });
+    const testType = new GraphQLObjectType({
+      name: 'SomeQuery',
+      fields: {
+        test: {
+          type: new GraphQLNonNull(
+            new GraphQLList(new GraphQLNonNull(someUnion)),
+          ),
+        },
+      },
+    });
+    const schema = new GraphQLSchema({
+      query: testType,
+      experimentalDefer: true,
+    });
+    const rootValue = { test: [{}] };
+    const document = parse(`
+      query {
+        ... on SomeQuery @defer {
+          l1: test {
+            ... on SomeObject @defer(label: "SomeLabel") {
+              l2: test
+            }
+          }
+        }  
+      }
+    `);
+
+    const result = await execute({ schema, document, rootValue });
+    const patches = [];
+
+    /* istanbul ignore else  - if result is not an asyncIterable, tests will fail as expected */
+    if (isAsyncIterable(result)) {
+      for await (const patch of result) {
+        patches.push(patch);
+      }
+    }
+
+    expect(labels).to.deep.equal([undefined, 'SomeLabel']);
+  });
+
+  it('does not populate labels array with nested labels that do not fork execution', async () => {
+    const collectedLabels = [];
+    const someObject = new GraphQLObjectType({
+      name: 'SomeObject',
+      fields: {
+        test: {
+          type: GraphQLString,
+          resolve(_val, _args, _ctx, info) {
+            collectedLabels.push(info.labels);
+          },
+        },
+      },
+    });
+    const someUnion = new GraphQLUnionType({
+      name: 'SomeUnion',
+      types: [someObject],
+      resolveType() {
+        return 'SomeObject';
+      },
+    });
+    const testType = new GraphQLObjectType({
+      name: 'SomeQuery',
+      fields: {
+        test: {
+          type: new GraphQLNonNull(
+            new GraphQLList(new GraphQLNonNull(someUnion)),
+          ),
+        },
+      },
+    });
+    const schema = new GraphQLSchema({
+      query: testType,
+      experimentalDefer: true,
+    });
+    const rootValue = { test: [{}] };
+    const document = parse(`
+      query {
+        test {
+          ... on SomeObject @defer(label: "SomeLabel") {
+            test1: test
+            ... on SomeObject @defer(label: "AnotherLabel") {
+              test2: test
+            }
+          }
+        }  
+      }
+    `);
+
+    const result = await execute({ schema, document, rootValue });
+    const patches = [];
+
+    /* istanbul ignore else  - if result is not an asyncIterable, tests will fail as expected */
+    if (isAsyncIterable(result)) {
+      for await (const patch of result) {
+        patches.push(patch);
+      }
+    }
+
+    expect(patches.length).to.equal(3);
+    expect(collectedLabels).to.deep.equal([['AnotherLabel'], ['SomeLabel']]);
   });
 
   it('threads root value context correctly', () => {

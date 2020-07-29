@@ -479,6 +479,7 @@ export interface GraphQLResolveInfo {
   readonly returnType: GraphQLOutputType;
   readonly parentType: GraphQLObjectType;
   readonly path: Path;
+  readonly labels?: Maybe<Array<Maybe<string>>>;
   readonly schema: GraphQLSchema;
   readonly fragments: { [key: string]: FragmentDefinitionNode };
   readonly rootValue: any;

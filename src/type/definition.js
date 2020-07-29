@@ -948,6 +948,7 @@ export type GraphQLResolveInfo = {|
   +returnType: GraphQLOutputType,
   +parentType: GraphQLObjectType,
   +path: Path,
+  +labels?: $ReadOnlyArray<string | void>,
   +schema: GraphQLSchema,
   +fragments: ObjMap<FragmentDefinitionNode>,
   +rootValue: mixed,

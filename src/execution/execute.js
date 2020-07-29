@@ -451,7 +451,9 @@ function executeOperation(
       exeContext.dispatcher.addFields(
         label,
         path,
-        executeFields(exeContext, type, rootValue, path, patchFields, errors),
+        executeFields(exeContext, type, rootValue, path, patchFields, errors, [
+          label,
+        ]),
         errors,
       );
     }
@@ -519,6 +521,7 @@ function executeFields(
   path: Path | void,
   fields: ObjMap<Array<FieldNode>>,
   errors?: Array<GraphQLError>,
+  labels?: $ReadOnlyArray<string | void>,
 ): PromiseOrValue<ObjMap<mixed>> {
   const results = Object.create(null);
   let containsPromise = false;
@@ -533,6 +536,7 @@ function executeFields(
       fieldNodes,
       fieldPath,
       errors,
+      labels,
     );
 
     if (result !== undefined) {
@@ -818,6 +822,7 @@ function resolveField(
   fieldNodes: $ReadOnlyArray<FieldNode>,
   path: Path,
   errors?: Array<GraphQLError>,
+  labels?: $ReadOnlyArray<string | void>,
 ): PromiseOrValue<mixed> {
   const fieldNode = fieldNodes[0];
   const fieldName = fieldNode.name.value;
@@ -836,6 +841,7 @@ function resolveField(
     fieldNodes,
     parentType,
     path,
+    labels,
   );
 
   // Get the resolve function, regardless of if its result is normal or abrupt (error).
@@ -867,6 +873,7 @@ function resolveField(
           path,
           resolved,
           errors,
+          labels,
         ),
       );
     } else {
@@ -878,6 +885,7 @@ function resolveField(
         path,
         result,
         errors,
+        labels,
       );
     }
 
@@ -917,6 +925,7 @@ export function buildResolveInfo(
   fieldNodes: $ReadOnlyArray<FieldNode>,
   parentType: GraphQLObjectType,
   path: Path,
+  labels?: $ReadOnlyArray<string | void>,
 ): GraphQLResolveInfo {
   // The resolve function's optional fourth argument is a collection of
   // information about the current execution state.
@@ -926,6 +935,7 @@ export function buildResolveInfo(
     returnType: fieldDef.type,
     parentType,
     path,
+    labels,
     schema: exeContext.schema,
     fragments: exeContext.fragments,
     rootValue: exeContext.rootValue,
@@ -989,6 +999,7 @@ function completeValue(
   path: Path,
   result: mixed,
   errors?: Array<GraphQLError>,
+  labels?: $ReadOnlyArray<string | void>,
 ): PromiseOrValue<mixed> {
   // If result is an Error, throw a located error.
   if (result instanceof Error) {
@@ -1006,6 +1017,7 @@ function completeValue(
       path,
       result,
       errors,
+      labels,
     );
     if (completed === null) {
       throw new Error(
@@ -1030,6 +1042,7 @@ function completeValue(
       path,
       result,
       errors,
+      labels,
     );
   }
 
@@ -1050,6 +1063,7 @@ function completeValue(
       path,
       result,
       errors,
+      labels,
     );
   }
 
@@ -1064,6 +1078,7 @@ function completeValue(
       path,
       result,
       errors,
+      labels,
     );
   }
 
@@ -1089,6 +1104,7 @@ function completeAsyncIteratorValue(
   completedResults: Array<mixed>,
   iterator: AsyncIterator<mixed>,
   errors?: Array<GraphQLError>,
+  labels?: $ReadOnlyArray<string | void>,
 ): Promise<$ReadOnlyArray<mixed>> {
   const fieldPath = addPath(path, index, undefined);
   const stream = getStreamValues(exeContext, fieldNodes);
@@ -1107,6 +1123,7 @@ function completeAsyncIteratorValue(
           fieldPath,
           value,
           errors,
+          labels,
         ),
       );
 
@@ -1125,6 +1142,7 @@ function completeAsyncIteratorValue(
           fieldNodes,
           info,
           itemType,
+          labels,
         );
         return completedResults;
       }
@@ -1139,6 +1157,7 @@ function completeAsyncIteratorValue(
         completedResults,
         iterator,
         errors,
+        labels,
       );
     },
     (error) => {
@@ -1168,6 +1187,7 @@ function completeListValue(
   path: Path,
   result: mixed,
   errors?: Array<GraphQLError>,
+  labels?: $ReadOnlyArray<string | void>,
 ): PromiseOrValue<$ReadOnlyArray<mixed>> {
   const itemType = returnType.ofType;
 
@@ -1184,6 +1204,7 @@ function completeListValue(
       [],
       iterator,
       errors,
+      labels,
     );
   }
 
@@ -1218,6 +1239,7 @@ function completeListValue(
           fieldNodes,
           info,
           itemType,
+          labels,
         );
         return;
       }
@@ -1231,6 +1253,7 @@ function completeListValue(
             itemPath,
             resolved,
             errors,
+            labels,
           ),
         );
       } else {
@@ -1242,6 +1265,7 @@ function completeListValue(
           itemPath,
           item,
           errors,
+          labels,
         );
       }
 
@@ -1303,6 +1327,7 @@ function completeAbstractValue(
   path: Path,
   result: mixed,
   errors?: Array<GraphQLError>,
+  labels?: $ReadOnlyArray<string | void>,
 ): PromiseOrValue<ObjMap<mixed>> {
   const resolveTypeFn = returnType.resolveType ?? exeContext.typeResolver;
   const contextValue = exeContext.contextValue;
@@ -1325,6 +1350,7 @@ function completeAbstractValue(
         path,
         result,
         errors,
+        labels,
       ),
     );
   }
@@ -1344,6 +1370,7 @@ function completeAbstractValue(
     path,
     result,
     errors,
+    labels,
   );
 }
 
@@ -1390,6 +1417,7 @@ function completeObjectValue(
   path: Path,
   result: mixed,
   errors?: Array<GraphQLError>,
+  labels?: $ReadOnlyArray<string | void>,
 ): PromiseOrValue<ObjMap<mixed>> {
   // If there is an isTypeOf predicate function, call it with the
   // current result. If isTypeOf returns false, then raise an error rather
@@ -1409,6 +1437,7 @@ function completeObjectValue(
           path,
           result,
           errors,
+          labels,
         );
       });
     }
@@ -1425,6 +1454,7 @@ function completeObjectValue(
     path,
     result,
     errors,
+    labels,
   );
 }
 
@@ -1446,6 +1476,7 @@ function collectAndExecuteSubfields(
   path: Path,
   result: mixed,
   errors?: Array<GraphQLError>,
+  labels?: $ReadOnlyArray<string | void>,
 ): PromiseOrValue<ObjMap<mixed>> {
   // Collect sub-fields to execute to complete this value.
   const { fields: subFieldNodes, patches: subPatches } = collectSubfields(
@@ -1461,6 +1492,7 @@ function collectAndExecuteSubfields(
     path,
     subFieldNodes,
     errors,
+    labels,
   );
 
   for (const subPatch of subPatches) {
@@ -1476,6 +1508,7 @@ function collectAndExecuteSubfields(
         path,
         subPatchFieldNodes,
         subPatchErrors,
+        labels ? [...labels, label] : [label],
       ),
       subPatchErrors,
     );
@@ -1672,6 +1705,7 @@ export class Dispatcher {
     fieldNodes: $ReadOnlyArray<FieldNode>,
     info: GraphQLResolveInfo,
     itemType: GraphQLOutputType,
+    labels?: $ReadOnlyArray<string | void>,
   ): void {
     const errors = [];
     this._subsequentPayloads.push(
@@ -1685,6 +1719,7 @@ export class Dispatcher {
             path,
             resolved,
             errors,
+            labels,
           ),
         )
         // Note: we don't rely on a `catch` method, but we do expect "thenable"
@@ -1715,6 +1750,7 @@ export class Dispatcher {
     fieldNodes: $ReadOnlyArray<FieldNode>,
     info: GraphQLResolveInfo,
     itemType: GraphQLOutputType,
+    labels?: $ReadOnlyArray<string | void>,
   ): void {
     const fieldPath = addPath(path, index);
     const patchErrors = [];
@@ -1733,6 +1769,7 @@ export class Dispatcher {
             fieldNodes,
             info,
             itemType,
+            labels,
           );
           return {
             value: createPatchResult(
@@ -1744,6 +1781,7 @@ export class Dispatcher {
                 fieldPath,
                 data,
                 patchErrors,
+                labels,
               ),
               label,
               fieldPath,
