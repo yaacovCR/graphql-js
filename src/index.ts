@@ -366,6 +366,7 @@ export type { ValidationRule } from './validation/index';
 
 /** Create, format, and print GraphQL errors. */
 export {
+  GraphQLAggregateError,
   GraphQLError,
   syntaxError,
   locatedError,
