@@ -3,7 +3,7 @@ import type { ObjMap } from '../jsutils/ObjMap';
 import type { PromiseOrValue } from '../jsutils/PromiseOrValue';
 import type { Maybe } from '../jsutils/Maybe';
 import { inspect } from '../jsutils/inspect';
-import { memoize3 } from '../jsutils/memoize3';
+import { memoize2 } from '../jsutils/memoize2';
 import { invariant } from '../jsutils/invariant';
 import { devAssert } from '../jsutils/devAssert';
 import { isPromise } from '../jsutils/isPromise';
@@ -149,22 +149,21 @@ export interface ExecutionArgs {
  * a GraphQLError will be thrown immediately explaining the invalid input.
  */
 export function execute(args: ExecutionArgs): PromiseOrValue<ExecutionResult> {
-  const executor = new Executor();
   // If a valid execution context cannot be created due to incorrect arguments,
   // a "Response" with only errors is returned.
-  let exeContext: ExecutionContext;
+  let executor: Executor;
   try {
-    exeContext = executor.buildExecutionContext(args);
+    executor = new Executor(args);
   } catch (error) {
-    // Note: if buildExecutionContext throws a GraphQLAggregateError, it will
-    // be of type GraphQLAggregateError<GraphQLError>, but this is checked explicitly.
+    // Note: if the Executor constructor throws a GraphQLAggregateError, it will be
+    // of type GraphQLAggregateError<GraphQLError>, but this is checked explicitly.
     if (isAggregateOfGraphQLErrors(error)) {
       return { errors: error.errors };
     }
     throw error;
   }
 
-  return executor.executeQueryOrMutation(exeContext);
+  return executor.executeQueryOrMutation();
 }
 
 /**
@@ -202,13 +201,12 @@ export class Executor {
    * type. Memoizing ensures the subfields are not repeatedly calculated, which
    * saves overhead when resolving lists of values.
    */
-  collectSubfields = memoize3(
+  collectSubfields = memoize2(
     (
-      exeContext: ExecutionContext,
       returnType: GraphQLObjectType,
       fieldNodes: ReadonlyArray<FieldNode>,
     ): Map<string, ReadonlyArray<FieldNode>> => {
-      const { schema, fragments, variableValues } = exeContext;
+      const { schema, fragments, variableValues } = this._exeContext;
 
       let subFieldNodes = new Map();
       const visitedFragmentNames = new Set<string>();
@@ -229,33 +227,55 @@ export class Executor {
     },
   );
 
+  protected _exeContext: ExecutionContext;
+
+  constructor(
+    argsOrExecutionContext:
+      | {
+          schema: GraphQLSchema;
+          document: DocumentNode;
+          rootValue?: unknown;
+          contextValue?: unknown;
+          variableValues?: Maybe<{ readonly [variable: string]: unknown }>;
+          operationName?: Maybe<string>;
+          fieldResolver?: Maybe<GraphQLFieldResolver<unknown, unknown>>;
+          typeResolver?: Maybe<GraphQLTypeResolver<unknown, unknown>>;
+          subscribeFieldResolver?: Maybe<
+            GraphQLFieldResolver<unknown, unknown>
+          >;
+        }
+      | ExecutionContext,
+  ) {
+    if ('fragments' in argsOrExecutionContext) {
+      this._exeContext = argsOrExecutionContext;
+      return;
+    }
+
+    this._exeContext = this.buildExecutionContext(argsOrExecutionContext);
+  }
+
   /**
    * Implements the "Executing operations" section of the spec for queries and
    * mutations.
    */
-  executeQueryOrMutation(
-    exeContext: ExecutionContext,
-  ): PromiseOrValue<ExecutionResult> {
-    const data = this.executeQueryOrMutationRootFields(exeContext);
+  executeQueryOrMutation(): PromiseOrValue<ExecutionResult> {
+    const data = this.executeQueryOrMutationRootFields();
 
     if (isPromise(data)) {
-      return data.then((resolved) => this.buildResponse(exeContext, resolved));
+      return data.then((resolved) => this.buildResponse(resolved));
     }
 
-    return this.buildResponse(exeContext, data);
+    return this.buildResponse(data);
   }
 
   /**
    * Given a completed execution context and data, build the { errors, data }
    * response defined by the "Response" section of the GraphQL specification.
    */
-  buildResponse(
-    exeContext: ExecutionContext,
-    data: ObjMap<unknown> | null,
-  ): ExecutionResult {
-    return exeContext.errors.length === 0
+  buildResponse(data: ObjMap<unknown> | null): ExecutionResult {
+    return this._exeContext.errors.length === 0
       ? { data }
-      : { errors: exeContext.errors, data };
+      : { errors: this._exeContext.errors, data };
   }
 
   /**
@@ -387,11 +407,9 @@ export class Executor {
    * be executed. An execution which encounters errors will still result in a
    * returned value or resolved Promise.
    * */
-  executeQueryOrMutationRootFields(
-    exeContext: ExecutionContext,
-  ): PromiseOrValue<ObjMap<unknown> | null> {
+  executeQueryOrMutationRootFields(): PromiseOrValue<ObjMap<unknown> | null> {
     const { schema, fragments, rootValue, operation, variableValues } =
-      exeContext;
+      this._exeContext;
     const type = getOperationRootType(schema, operation);
     const fields = collectFields(
       schema,
@@ -411,23 +429,17 @@ export class Executor {
     try {
       const result =
         operation.operation === 'mutation'
-          ? this.executeFieldsSerially(
-              exeContext,
-              type,
-              rootValue,
-              path,
-              fields,
-            )
-          : this.executeFields(exeContext, type, rootValue, path, fields);
+          ? this.executeFieldsSerially(type, rootValue, path, fields)
+          : this.executeFields(type, rootValue, path, fields);
       if (isPromise(result)) {
         return result.then(undefined, (error) => {
-          exeContext.errors.push(error);
+          this._exeContext.errors.push(error);
           return Promise.resolve(null);
         });
       }
       return result;
     } catch (error) {
-      exeContext.errors.push(error);
+      this._exeContext.errors.push(error);
       return null;
     }
   }
@@ -437,7 +449,6 @@ export class Executor {
    * for fields that must be executed serially.
    */
   executeFieldsSerially(
-    exeContext: ExecutionContext,
     parentType: GraphQLObjectType,
     sourceValue: unknown,
     path: Path | undefined,
@@ -448,7 +459,6 @@ export class Executor {
       (results, [responseName, fieldNodes]) => {
         const fieldPath = addPath(path, responseName, parentType.name);
         const result = this.executeField(
-          exeContext,
           parentType,
           sourceValue,
           fieldNodes,
@@ -475,7 +485,6 @@ export class Executor {
    * for fields that may be executed in parallel.
    */
   executeFields(
-    exeContext: ExecutionContext,
     parentType: GraphQLObjectType,
     sourceValue: unknown,
     path: Path | undefined,
@@ -487,7 +496,6 @@ export class Executor {
     for (const [responseName, fieldNodes] of fields.entries()) {
       const fieldPath = addPath(path, responseName, parentType.name);
       const result = this.executeField(
-        exeContext,
         parentType,
         sourceValue,
         fieldNodes,
@@ -520,14 +528,13 @@ export class Executor {
    * serialize scalars, or execute the sub-selection-set for objects.
    */
   executeField(
-    exeContext: ExecutionContext,
     parentType: GraphQLObjectType,
     source: unknown,
     fieldNodes: ReadonlyArray<FieldNode>,
     path: Path,
   ): PromiseOrValue<unknown> {
     const fieldDef = this.getFieldDef(
-      exeContext.schema,
+      this._exeContext.schema,
       parentType,
       fieldNodes[0],
     );
@@ -536,15 +543,9 @@ export class Executor {
     }
 
     const returnType = fieldDef.type;
-    const resolveFn = fieldDef.resolve ?? exeContext.fieldResolver;
+    const resolveFn = fieldDef.resolve ?? this._exeContext.fieldResolver;
 
-    const info = this.buildResolveInfo(
-      exeContext,
-      fieldDef,
-      fieldNodes,
-      parentType,
-      path,
-    );
+    const info = this.buildResolveInfo(fieldDef, fieldNodes, parentType, path);
 
     // Get the resolve function, regardless of if its result is normal or abrupt (error).
     try {
@@ -554,31 +555,23 @@ export class Executor {
       const args = getArgumentValues(
         fieldDef,
         fieldNodes[0],
-        exeContext.variableValues,
+        this._exeContext.variableValues,
       );
 
       // The resolve function's optional third argument is a context value that
       // is provided to every resolve function within an execution. It is commonly
       // used to represent an authenticated user, or request-specific caches.
-      const contextValue = exeContext.contextValue;
+      const contextValue = this._exeContext.contextValue;
 
       const result = resolveFn(source, args, contextValue, info);
 
       let completed;
       if (isPromise(result)) {
         completed = result.then((resolved) =>
-          this.completeValue(
-            exeContext,
-            returnType,
-            fieldNodes,
-            info,
-            path,
-            resolved,
-          ),
+          this.completeValue(returnType, fieldNodes, info, path, resolved),
         );
       } else {
         completed = this.completeValue(
-          exeContext,
           returnType,
           fieldNodes,
           info,
@@ -591,24 +584,12 @@ export class Executor {
         // Note: we don't rely on a `catch` method, but we do expect "thenable"
         // to take a second callback for the error case.
         return completed.then(undefined, (rawError) =>
-          this.handleRawError(
-            exeContext,
-            returnType,
-            rawError,
-            fieldNodes,
-            path,
-          ),
+          this.handleRawError(returnType, rawError, fieldNodes, path),
         );
       }
       return completed;
     } catch (rawError) {
-      return this.handleRawError(
-        exeContext,
-        returnType,
-        rawError,
-        fieldNodes,
-        path,
-      );
+      return this.handleRawError(returnType, rawError, fieldNodes, path);
     }
   }
 
@@ -616,14 +597,13 @@ export class Executor {
    * @internal
    */
   buildResolveInfo(
-    exeContext: ExecutionContext,
     fieldDef: GraphQLField<unknown, unknown>,
     fieldNodes: ReadonlyArray<FieldNode>,
     parentType: GraphQLObjectType,
     path: Path,
   ): GraphQLResolveInfo {
     const { schema, fragments, rootValue, operation, variableValues } =
-      exeContext;
+      this._exeContext;
 
     // The resolve function's optional fourth argument is a collection of
     // information about the current execution state.
@@ -642,7 +622,6 @@ export class Executor {
   }
 
   handleRawError(
-    exeContext: ExecutionContext,
     returnType: GraphQLOutputType,
     rawError: unknown,
     fieldNodes: ReadonlyArray<ASTNode>,
@@ -668,11 +647,11 @@ export class Executor {
     // Otherwise, error protection is applied, logging the error and resolving
     // a null value for this field if one is encountered.
     if (error instanceof GraphQLAggregateError) {
-      exeContext.errors.push(...error.errors);
+      this._exeContext.errors.push(...error.errors);
       return null;
     }
 
-    exeContext.errors.push(error);
+    this._exeContext.errors.push(error);
     return null;
   }
 
@@ -698,7 +677,6 @@ export class Executor {
    * value by executing all sub-selections.
    */
   completeValue(
-    exeContext: ExecutionContext,
     returnType: GraphQLOutputType,
     fieldNodes: ReadonlyArray<FieldNode>,
     info: GraphQLResolveInfo,
@@ -714,7 +692,6 @@ export class Executor {
     // if result is null.
     if (isNonNullType(returnType)) {
       const completed = this.completeValue(
-        exeContext,
         returnType.ofType,
         fieldNodes,
         info,
@@ -736,14 +713,7 @@ export class Executor {
 
     // If field type is List, complete each item in the list with the inner type
     if (isListType(returnType)) {
-      return this.completeListValue(
-        exeContext,
-        returnType,
-        fieldNodes,
-        info,
-        path,
-        result,
-      );
+      return this.completeListValue(returnType, fieldNodes, info, path, result);
     }
 
     // If field type is a leaf type, Scalar or Enum, serialize to a valid value,
@@ -756,7 +726,6 @@ export class Executor {
     // runtime Object type and complete for that type.
     if (isAbstractType(returnType)) {
       return this.completeAbstractValue(
-        exeContext,
         returnType,
         fieldNodes,
         info,
@@ -769,7 +738,6 @@ export class Executor {
     // istanbul ignore else (See: 'https://github.com/graphql/graphql-js/issues/2618')
     if (isObjectType(returnType)) {
       return this.completeObjectValue(
-        exeContext,
         returnType,
         fieldNodes,
         info,
@@ -790,7 +758,6 @@ export class Executor {
    * inner type
    */
   completeListValue(
-    exeContext: ExecutionContext,
     returnType: GraphQLList<GraphQLOutputType>,
     fieldNodes: ReadonlyArray<FieldNode>,
     info: GraphQLResolveInfo,
@@ -815,18 +782,10 @@ export class Executor {
         let completedItem;
         if (isPromise(item)) {
           completedItem = item.then((resolved) =>
-            this.completeValue(
-              exeContext,
-              itemType,
-              fieldNodes,
-              info,
-              itemPath,
-              resolved,
-            ),
+            this.completeValue(itemType, fieldNodes, info, itemPath, resolved),
           );
         } else {
           completedItem = this.completeValue(
-            exeContext,
             itemType,
             fieldNodes,
             info,
@@ -840,24 +799,12 @@ export class Executor {
           // Note: we don't rely on a `catch` method, but we do expect "thenable"
           // to take a second callback for the error case.
           return completedItem.then(undefined, (rawError) =>
-            this.handleRawError(
-              exeContext,
-              itemType,
-              rawError,
-              fieldNodes,
-              itemPath,
-            ),
+            this.handleRawError(itemType, rawError, fieldNodes, itemPath),
           );
         }
         return completedItem;
       } catch (rawError) {
-        return this.handleRawError(
-          exeContext,
-          itemType,
-          rawError,
-          fieldNodes,
-          itemPath,
-        );
+        return this.handleRawError(itemType, rawError, fieldNodes, itemPath);
       }
     });
 
@@ -884,24 +831,22 @@ export class Executor {
    * of that value, then complete the value for that type.
    */
   completeAbstractValue(
-    exeContext: ExecutionContext,
     returnType: GraphQLAbstractType,
     fieldNodes: ReadonlyArray<FieldNode>,
     info: GraphQLResolveInfo,
     path: Path,
     result: unknown,
   ): PromiseOrValue<ObjMap<unknown>> {
-    const resolveTypeFn = returnType.resolveType ?? exeContext.typeResolver;
-    const contextValue = exeContext.contextValue;
+    const resolveTypeFn =
+      returnType.resolveType ?? this._exeContext.typeResolver;
+    const contextValue = this._exeContext.contextValue;
     const runtimeType = resolveTypeFn(result, contextValue, info, returnType);
 
     if (isPromise(runtimeType)) {
       return runtimeType.then((resolvedRuntimeType) =>
         this.completeObjectValue(
-          exeContext,
           this.ensureValidRuntimeType(
             resolvedRuntimeType,
-            exeContext,
             returnType,
             fieldNodes,
             info,
@@ -916,10 +861,8 @@ export class Executor {
     }
 
     return this.completeObjectValue(
-      exeContext,
       this.ensureValidRuntimeType(
         runtimeType,
-        exeContext,
         returnType,
         fieldNodes,
         info,
@@ -934,7 +877,6 @@ export class Executor {
 
   ensureValidRuntimeType(
     runtimeTypeName: unknown,
-    exeContext: ExecutionContext,
     returnType: GraphQLAbstractType,
     fieldNodes: ReadonlyArray<FieldNode>,
     info: GraphQLResolveInfo,
@@ -962,7 +904,7 @@ export class Executor {
       );
     }
 
-    const runtimeType = exeContext.schema.getType(runtimeTypeName);
+    const runtimeType = this._exeContext.schema.getType(runtimeTypeName);
     if (runtimeType == null) {
       throw new GraphQLError(
         `Abstract type "${returnType.name}" was resolved to a type "${runtimeTypeName}" that does not exist inside the schema.`,
@@ -977,7 +919,7 @@ export class Executor {
       );
     }
 
-    if (!exeContext.schema.isSubType(returnType, runtimeType)) {
+    if (!this._exeContext.schema.isSubType(returnType, runtimeType)) {
       throw new GraphQLError(
         `Runtime Object type "${runtimeType.name}" is not a possible type for "${returnType.name}".`,
         fieldNodes,
@@ -991,7 +933,6 @@ export class Executor {
    * Complete an Object value by executing all sub-selections.
    */
   completeObjectValue(
-    exeContext: ExecutionContext,
     returnType: GraphQLObjectType,
     fieldNodes: ReadonlyArray<FieldNode>,
     info: GraphQLResolveInfo,
@@ -999,11 +940,7 @@ export class Executor {
     result: unknown,
   ): PromiseOrValue<ObjMap<unknown>> {
     // Collect sub-fields to execute to complete this value.
-    const subFieldNodes = this.collectSubfields(
-      exeContext,
-      returnType,
-      fieldNodes,
-    );
+    const subFieldNodes = this.collectSubfields(returnType, fieldNodes);
 
     // If there is an isTypeOf predicate function, call it with the
     // current result. If isTypeOf returns false, then raise an error rather
@@ -1011,7 +948,7 @@ export class Executor {
     if (returnType.isTypeOf) {
       const isTypeOf = returnType.isTypeOf(
         result,
-        exeContext.contextValue,
+        this._exeContext.contextValue,
         info,
       );
 
@@ -1020,13 +957,7 @@ export class Executor {
           if (!resolvedIsTypeOf) {
             throw this.invalidReturnTypeError(returnType, result, fieldNodes);
           }
-          return this.executeFields(
-            exeContext,
-            returnType,
-            result,
-            path,
-            subFieldNodes,
-          );
+          return this.executeFields(returnType, result, path, subFieldNodes);
         });
       }
 
@@ -1035,13 +966,7 @@ export class Executor {
       }
     }
 
-    return this.executeFields(
-      exeContext,
-      returnType,
-      result,
-      path,
-      subFieldNodes,
-    );
+    return this.executeFields(returnType, result, path, subFieldNodes);
   }
 
   invalidReturnTypeError(
@@ -1094,10 +1019,10 @@ export class Executor {
   /**
    * Implements the "Executing operations" section of the spec for subscriptions
    */
-  async executeSubscription(
-    exeContext: ExecutionContext,
-  ): Promise<AsyncGenerator<ExecutionResult, void, void> | ExecutionResult> {
-    const resultOrStream = await this.createSourceEventStream(exeContext);
+  async executeSubscription(): Promise<
+    AsyncGenerator<ExecutionResult, void, void> | ExecutionResult
+  > {
+    const resultOrStream = await this.createSourceEventStream();
 
     if (!isAsyncIterable(resultOrStream)) {
       return resultOrStream;
@@ -1110,12 +1035,14 @@ export class Executor {
     // the GraphQL specification. The `execute` function provides the
     // "ExecuteSubscriptionEvent" algorithm, as it is nearly identical to the
     // "ExecuteQuery" algorithm, for which `execute` is also used.
-    const mapSourceToResponse = (payload: unknown) =>
-      this.executeQueryOrMutation({
-        ...exeContext,
+    const mapSourceToResponse = (payload: unknown) => {
+      const executor = new Executor({
+        ...this._exeContext,
         rootValue: payload,
         errors: [],
       });
+      return executor.executeQueryOrMutation();
+    };
 
     // Map every source value to a ExecutionResult value as described above.
     return mapAsyncIterator(resultOrStream, mapSourceToResponse);
@@ -1149,13 +1076,13 @@ export class Executor {
    * or otherwise separating these two steps. For more on this, see the
    * "Supporting Subscriptions at Scale" information in the GraphQL specification.
    */
-  async createSourceEventStream(
-    exeContext: ExecutionContext,
-  ): Promise<AsyncIterable<unknown> | ExecutionResult> {
-    const eventStream = await this.executeSubscriptionRootField(exeContext);
+  async createSourceEventStream(): Promise<
+    AsyncIterable<unknown> | ExecutionResult
+  > {
+    const eventStream = await this.executeSubscriptionRootField();
 
-    if (exeContext.errors.length !== 0) {
-      return { errors: exeContext.errors };
+    if (this._exeContext.errors.length !== 0) {
+      return { errors: this._exeContext.errors };
     }
 
     // Assert field returned an event stream, otherwise yield an error.
@@ -1169,11 +1096,9 @@ export class Executor {
     return eventStream;
   }
 
-  async executeSubscriptionRootField(
-    exeContext: ExecutionContext,
-  ): Promise<unknown> {
+  async executeSubscriptionRootField(): Promise<unknown> {
     const { schema, fragments, operation, variableValues, rootValue } =
-      exeContext;
+      this._exeContext;
     const type = getOperationRootType(schema, operation);
     const fields = collectFields(
       schema,
@@ -1189,7 +1114,7 @@ export class Executor {
 
     if (!fieldDef) {
       const fieldName = fieldNodes[0].name.value;
-      exeContext.errors.push(
+      this._exeContext.errors.push(
         new GraphQLError(
           `The subscription field "${fieldName}" is not defined.`,
           fieldNodes,
@@ -1199,13 +1124,7 @@ export class Executor {
     }
 
     const path = addPath(undefined, responseName, type.name);
-    const info = this.buildResolveInfo(
-      exeContext,
-      fieldDef,
-      fieldNodes,
-      type,
-      path,
-    );
+    const info = this.buildResolveInfo(fieldDef, fieldNodes, type, path);
 
     try {
       // Implements the "ResolveFieldEventStream" algorithm from GraphQL specification.
@@ -1218,11 +1137,11 @@ export class Executor {
       // The resolve function's optional third argument is a context value that
       // is provided to every resolve function within an execution. It is commonly
       // used to represent an authenticated user, or request-specific caches.
-      const contextValue = exeContext.contextValue;
+      const contextValue = this._exeContext.contextValue;
 
       // Call the `subscribe()` resolver or the default resolver to produce an
       // AsyncIterable yielding raw payloads.
-      const resolveFn = fieldDef.subscribe ?? exeContext.fieldResolver;
+      const resolveFn = fieldDef.subscribe ?? this._exeContext.fieldResolver;
       const eventStream = await resolveFn(rootValue, args, contextValue, info);
 
       if (eventStream instanceof Error) {
@@ -1230,13 +1149,7 @@ export class Executor {
       }
       return eventStream;
     } catch (rawError) {
-      return this.handleRawError(
-        exeContext,
-        fieldDef.type,
-        rawError,
-        fieldNodes,
-        path,
-      );
+      return this.handleRawError(fieldDef.type, rawError, fieldNodes, path);
     }
   }
 }
