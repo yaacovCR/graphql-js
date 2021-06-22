@@ -60,6 +60,18 @@ import { getVariableValues, getArgumentValues } from './values';
 import { collectFields } from './collectFields';
 import { mapAsyncIterator } from './mapAsyncIterator';
 
+export interface ExecutorArgs {
+  schema: GraphQLSchema;
+  document: DocumentNode;
+  rootValue?: unknown;
+  contextValue?: unknown;
+  variableValues?: Maybe<{ readonly [variable: string]: unknown }>;
+  operationName?: Maybe<string>;
+  fieldResolver?: Maybe<GraphQLFieldResolver<unknown, unknown>>;
+  typeResolver?: Maybe<GraphQLTypeResolver<unknown, unknown>>;
+  subscribeFieldResolver?: Maybe<GraphQLFieldResolver<unknown, unknown>>;
+}
+
 /**
  * Data that must be available at all points during query execution.
  *
@@ -135,23 +147,7 @@ export class Executor {
   protected _subscribeFieldResolver: Maybe<GraphQLFieldResolver<any, any>>;
   protected _errors: Array<GraphQLError>;
 
-  constructor(
-    argsOrExecutionContext:
-      | {
-          schema: GraphQLSchema;
-          document: DocumentNode;
-          rootValue?: unknown;
-          contextValue?: unknown;
-          variableValues?: Maybe<{ readonly [variable: string]: unknown }>;
-          operationName?: Maybe<string>;
-          fieldResolver?: Maybe<GraphQLFieldResolver<unknown, unknown>>;
-          typeResolver?: Maybe<GraphQLTypeResolver<unknown, unknown>>;
-          subscribeFieldResolver?: Maybe<
-            GraphQLFieldResolver<unknown, unknown>
-          >;
-        }
-      | ExecutionContext,
-  ) {
+  constructor(argsOrExecutionContext: ExecutorArgs | ExecutionContext) {
     const executionContext =
       'fragments' in argsOrExecutionContext
         ? argsOrExecutionContext
@@ -212,7 +208,7 @@ export class Executor {
    *
    * @internal
    */
-  assertValidExecutionArguments(
+  assertValidArguments(
     schema: GraphQLSchema,
     document: DocumentNode,
     rawVariableValues: Maybe<{ readonly [variable: string]: unknown }>,
@@ -237,17 +233,7 @@ export class Executor {
    *
    * @internal
    */
-  buildExecutionContext(args: {
-    schema: GraphQLSchema;
-    document: DocumentNode;
-    rootValue?: unknown;
-    contextValue?: unknown;
-    variableValues?: Maybe<{ readonly [variable: string]: unknown }>;
-    operationName?: Maybe<string>;
-    fieldResolver?: Maybe<GraphQLFieldResolver<unknown, unknown>>;
-    typeResolver?: Maybe<GraphQLTypeResolver<unknown, unknown>>;
-    subscribeFieldResolver?: Maybe<GraphQLFieldResolver<unknown, unknown>>;
-  }): ExecutionContext {
+  buildExecutionContext(args: ExecutorArgs): ExecutionContext {
     const {
       schema,
       document,
@@ -261,7 +247,7 @@ export class Executor {
     } = args;
 
     // If arguments are missing or incorrect, throw an error.
-    this.assertValidExecutionArguments(schema, document, rawVariableValues);
+    this.assertValidArguments(schema, document, rawVariableValues);
 
     let operation: OperationDefinitionNode | undefined;
     const fragments: ObjMap<FragmentDefinitionNode> = Object.create(null);
