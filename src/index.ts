@@ -309,7 +309,9 @@ export {
 } from './execution/index';
 
 export type {
+  ExecutorArgs,
   ExecutionArgs,
+  ExecutionContext,
   ExecutionResult,
   FormattedExecutionResult,
 } from './execution/index';
