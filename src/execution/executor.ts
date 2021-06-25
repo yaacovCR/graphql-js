@@ -380,14 +380,12 @@ export class Executor {
         if (result === undefined) {
           return results;
         }
-        if (isPromise(result)) {
-          return result.then((resolvedResult) => {
+        return new MaybePromise(() => result)
+          .then((resolvedResult) => {
             results[responseName] = resolvedResult;
             return results;
-          });
-        }
-        results[responseName] = result;
-        return results;
+          })
+          .resolve();
       },
       Object.create(null),
     );
