@@ -9,11 +9,11 @@ import { devAssert } from '../jsutils/devAssert';
 import { isPromise } from '../jsutils/isPromise';
 import { isObjectLike } from '../jsutils/isObjectLike';
 import { promiseReduce } from '../jsutils/promiseReduce';
-import { promiseForObject } from '../jsutils/promiseForObject';
+import { MaybePromise } from '../jsutils/maybePromise';
+import { maybePromiseForObject } from '../jsutils/maybePromiseForObject';
 import { addPath, pathToArray } from '../jsutils/Path';
 import { isIterableObject } from '../jsutils/isIterableObject';
 import { isAsyncIterable } from '../jsutils/isAsyncIterable';
-import { MaybePromise } from '../jsutils/maybePromise';
 
 import { GraphQLAggregateError } from '../error/GraphQLAggregateError';
 import { GraphQLError } from '../error/GraphQLError';
@@ -406,7 +406,6 @@ export class Executor {
     fields: Map<string, ReadonlyArray<FieldNode>>,
   ): PromiseOrValue<ObjMap<unknown>> {
     const results = Object.create(null);
-    let containsPromise = false;
 
     for (const [responseName, fieldNodes] of fields.entries()) {
       const fieldPath = addPath(path, responseName, parentType.name);
@@ -418,22 +417,14 @@ export class Executor {
       );
 
       if (result !== undefined) {
-        results[responseName] = result;
-        if (isPromise(result)) {
-          containsPromise = true;
-        }
+        results[responseName] = new MaybePromise(() => result);
       }
-    }
-
-    // If there are no promises, we can just return the object
-    if (!containsPromise) {
-      return results;
     }
 
     // Otherwise, results is a map from field name to the result of resolving that
     // field, which is possibly a promise. Return a promise that will return this
     // same map, but with any promises replaced with the values they resolved to.
-    return promiseForObject(results);
+    return maybePromiseForObject(results).resolve();
   }
 
   /**
