@@ -186,11 +186,9 @@ export class Executor {
   executeQueryOrMutation(): PromiseOrValue<ExecutionResult> {
     const data = this.executeQueryOrMutationRootFields();
 
-    if (isPromise(data)) {
-      return data.then((resolved) => this.buildResponse(resolved));
-    }
-
-    return this.buildResponse(data);
+    return new MaybePromise(() => data)
+      .then((resolved) => this.buildResponse(resolved))
+      .resolve();
   }
 
   /**
