@@ -1,26 +1,23 @@
 import { expect } from 'chai';
 import { describe, it } from 'mocha';
 
-import { inspect } from '../../jsutils/inspect';
-import { invariant } from '../../jsutils/invariant';
+import type { GraphQLArgumentConfig, GraphQLFieldConfig } from 'graphql';
 
-import { Kind } from '../../language/kinds';
-import { parse } from '../../language/parser';
-
-import type {
-  GraphQLFieldConfig,
-  GraphQLArgumentConfig,
-} from '../../type/definition';
-import { GraphQLSchema } from '../../type/schema';
-import { GraphQLString } from '../../type/scalars';
 import {
+  GraphQLEnumType,
+  GraphQLInputObjectType,
   GraphQLList,
   GraphQLNonNull,
-  GraphQLScalarType,
   GraphQLObjectType,
-  GraphQLInputObjectType,
-  GraphQLEnumType,
-} from '../../type/definition';
+  GraphQLScalarType,
+  GraphQLSchema,
+  GraphQLString,
+  Kind,
+  parse,
+} from 'graphql';
+
+import { inspect } from '../../jsutils/inspect';
+import { invariant } from '../../jsutils/invariant';
 
 import { executeSync } from '../execute';
 import { getVariableValues } from '../values';

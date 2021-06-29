@@ -1,3 +1,39 @@
+import type {
+  ASTNode,
+  DocumentNode,
+  FieldNode,
+  FragmentDefinitionNode,
+  GraphQLAbstractType,
+  GraphQLField,
+  GraphQLFieldResolver,
+  GraphQLLeafType,
+  GraphQLList,
+  GraphQLObjectType,
+  GraphQLOutputType,
+  GraphQLResolveInfo,
+  GraphQLSchema,
+  GraphQLTypeResolver,
+  OperationDefinitionNode,
+} from 'graphql';
+
+import {
+  GraphQLError,
+  Kind,
+  SchemaMetaFieldDef,
+  TypeMetaFieldDef,
+  TypeNameMetaFieldDef,
+  assertValidSchema,
+  defaultFieldResolver,
+  defaultTypeResolver,
+  getOperationRootType,
+  isAbstractType,
+  isLeafType,
+  isListType,
+  isNonNullType,
+  isObjectType,
+  locatedError,
+} from 'graphql';
+
 import type { Path } from '../jsutils/Path';
 import type { ObjMap } from '../jsutils/ObjMap';
 import type { PromiseOrValue } from '../jsutils/PromiseOrValue';
@@ -6,7 +42,6 @@ import { inspect } from '../jsutils/inspect';
 import { memoize2 } from '../jsutils/memoize2';
 import { invariant } from '../jsutils/invariant';
 import { devAssert } from '../jsutils/devAssert';
-import { isPromise } from '../jsutils/isPromise';
 import { isObjectLike } from '../jsutils/isObjectLike';
 import { promiseReduce } from '../jsutils/promiseReduce';
 import { MaybePromise } from '../jsutils/maybePromise';
@@ -15,51 +50,11 @@ import { addPath, pathToArray } from '../jsutils/Path';
 import { isIterableObject } from '../jsutils/isIterableObject';
 import { isAsyncIterable } from '../jsutils/isAsyncIterable';
 
-import { GraphQLAggregateError } from '../error/GraphQLAggregateError';
-import { GraphQLError } from '../error/GraphQLError';
-import { locatedError } from '../error/locatedError';
-
-import type {
-  DocumentNode,
-  OperationDefinitionNode,
-  FieldNode,
-  FragmentDefinitionNode,
-  ASTNode,
-} from '../language/ast';
-import { Kind } from '../language/kinds';
-
-import type { GraphQLSchema } from '../type/schema';
-import type {
-  GraphQLObjectType,
-  GraphQLOutputType,
-  GraphQLLeafType,
-  GraphQLAbstractType,
-  GraphQLField,
-  GraphQLFieldResolver,
-  GraphQLResolveInfo,
-  GraphQLTypeResolver,
-  GraphQLList,
-} from '../type/definition';
-import { assertValidSchema } from '../type/validate';
-import {
-  SchemaMetaFieldDef,
-  TypeMetaFieldDef,
-  TypeNameMetaFieldDef,
-} from '../type/introspection';
-import {
-  isObjectType,
-  isAbstractType,
-  isLeafType,
-  isListType,
-  isNonNullType,
-} from '../type/definition';
-
-import { getOperationRootType } from '../utilities/getOperationRootType';
-
 import type { ExecutionResult } from './execute';
 import { getVariableValues, getArgumentValues } from './values';
 import { collectFields } from './collectFields';
 import { mapAsyncIterator } from './mapAsyncIterator';
+import { GraphQLAggregateError } from './GraphQLAggregateError';
 
 export interface ExecutorArgs {
   schema: GraphQLSchema;
@@ -1020,67 +1015,3 @@ export class Executor {
     }
   }
 }
-
-/**
- * If a resolveType function is not given, then a default resolve behavior is
- * used which attempts two strategies:
- *
- * First, See if the provided value has a `__typename` field defined, if so, use
- * that value as name of the resolved type.
- *
- * Otherwise, test each possible type for the abstract type by calling
- * isTypeOf for the object being coerced, returning the first type that matches.
- */
-export const defaultTypeResolver: GraphQLTypeResolver<unknown, unknown> =
-  function (value, contextValue, info, abstractType) {
-    // First, look for `__typename`.
-    if (isObjectLike(value) && typeof value.__typename === 'string') {
-      return value.__typename;
-    }
-
-    // Otherwise, test each possible type.
-    const possibleTypes = info.schema.getPossibleTypes(abstractType);
-    const promisedIsTypeOfResults = [];
-
-    for (let i = 0; i < possibleTypes.length; i++) {
-      const type = possibleTypes[i];
-
-      if (type.isTypeOf) {
-        const isTypeOfResult = type.isTypeOf(value, contextValue, info);
-
-        if (isPromise(isTypeOfResult)) {
-          promisedIsTypeOfResults[i] = isTypeOfResult;
-        } else if (isTypeOfResult) {
-          return type.name;
-        }
-      }
-    }
-
-    if (promisedIsTypeOfResults.length) {
-      return Promise.all(promisedIsTypeOfResults).then((isTypeOfResults) => {
-        for (let i = 0; i < isTypeOfResults.length; i++) {
-          if (isTypeOfResults[i]) {
-            return possibleTypes[i].name;
-          }
-        }
-      });
-    }
-  };
-
-/**
- * If a resolve function is not given, then a default resolve behavior is used
- * which takes the property of the source object of the same name as the field
- * and returns it as the result, or if it's a function, returns the result
- * of calling that function while passing along args and context value.
- */
-export const defaultFieldResolver: GraphQLFieldResolver<unknown, unknown> =
-  function (source: any, args, contextValue, info) {
-    // ensure source is a value for which property access is acceptable.
-    if (isObjectLike(source) || typeof source === 'function') {
-      const property = source[info.fieldName];
-      if (typeof property === 'function') {
-        return source[info.fieldName](args, contextValue, info);
-      }
-      return property;
-    }
-  };

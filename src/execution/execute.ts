@@ -1,21 +1,19 @@
+import type {
+  DocumentNode,
+  GraphQLError,
+  GraphQLFieldResolver,
+  GraphQLFormattedError,
+  GraphQLSchema,
+  GraphQLTypeResolver,
+} from 'graphql';
+
 import type { ObjMap } from '../jsutils/ObjMap';
 import type { PromiseOrValue } from '../jsutils/PromiseOrValue';
 import type { Maybe } from '../jsutils/Maybe';
 import { isPromise } from '../jsutils/isPromise';
 
-import type { GraphQLFormattedError } from '../error/formatError';
-import { isAggregateOfGraphQLErrors } from '../error/GraphQLAggregateError';
-import type { GraphQLError } from '../error/GraphQLError';
-
-import type { DocumentNode } from '../language/ast';
-
-import type { GraphQLSchema } from '../type/schema';
-import type {
-  GraphQLFieldResolver,
-  GraphQLTypeResolver,
-} from '../type/definition';
-
 import { Executor } from './executor';
+import { isAggregateOfGraphQLErrors } from './GraphQLAggregateError';
 
 /**
  * Terminology

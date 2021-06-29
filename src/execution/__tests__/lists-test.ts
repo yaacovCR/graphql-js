@@ -1,9 +1,7 @@
 import { expect } from 'chai';
 import { describe, it } from 'mocha';
 
-import { parse } from '../../language/parser';
-
-import { buildSchema } from '../../utilities/buildASTSchema';
+import { buildSchema, parse } from 'graphql';
 
 import { execute, executeSync } from '../execute';
 

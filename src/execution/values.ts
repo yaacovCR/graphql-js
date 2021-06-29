@@ -1,27 +1,28 @@
+import type {
+  DirectiveNode,
+  FieldNode,
+  GraphQLDirective,
+  GraphQLField,
+  GraphQLSchema,
+  VariableDefinitionNode,
+} from 'graphql';
+
+import {
+  GraphQLError,
+  Kind,
+  coerceInputValue,
+  isInputType,
+  isNonNullType,
+  print,
+  typeFromAST,
+  valueFromAST,
+} from 'graphql';
+
 import type { ObjMap } from '../jsutils/ObjMap';
 import type { Maybe } from '../jsutils/Maybe';
 import { keyMap } from '../jsutils/keyMap';
 import { inspect } from '../jsutils/inspect';
 import { printPathArray } from '../jsutils/printPathArray';
-
-import { GraphQLError } from '../error/GraphQLError';
-
-import type {
-  FieldNode,
-  DirectiveNode,
-  VariableDefinitionNode,
-} from '../language/ast';
-import { Kind } from '../language/kinds';
-import { print } from '../language/printer';
-
-import type { GraphQLSchema } from '../type/schema';
-import type { GraphQLField } from '../type/definition';
-import type { GraphQLDirective } from '../type/directives';
-import { isInputType, isNonNullType } from '../type/definition';
-
-import { typeFromAST } from '../utilities/typeFromAST';
-import { valueFromAST } from '../utilities/valueFromAST';
-import { coerceInputValue } from '../utilities/coerceInputValue';
 
 type CoercedVariableValues =
   | { errors: ReadonlyArray<GraphQLError>; coerced?: never }
@@ -80,6 +81,8 @@ function coerceVariableValues(
   const coercedValues: { [variable: string]: unknown } = {};
   for (const varDefNode of varDefNodes) {
     const varName = varDefNode.variable.name.value;
+    // TO DO: check if fixed in v16
+    // @ts-expect-error
     const varType = typeFromAST(schema, varDefNode.type);
     if (!isInputType(varType)) {
       // Must use input types for variables. This should be caught during

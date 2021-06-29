@@ -1,4 +1,4 @@
-import { GraphQLError } from './GraphQLError';
+import { GraphQLError } from 'graphql';
 
 /**
  * A GraphQLAggregateError is a container for multiple errors.

@@ -1,19 +1,18 @@
 import { expect } from 'chai';
 import { describe, it } from 'mocha';
 
-import { parse } from '../../language/parser';
-
-import { GraphQLSchema } from '../../type/schema';
-import { GraphQLString, GraphQLBoolean } from '../../type/scalars';
 import {
-  assertInterfaceType,
+  GraphQLBoolean,
+  GraphQLInterfaceType,
   GraphQLList,
   GraphQLObjectType,
-  GraphQLInterfaceType,
+  GraphQLSchema,
+  GraphQLString,
   GraphQLUnionType,
-} from '../../type/definition';
-
-import { buildSchema } from '../../utilities/buildASTSchema';
+  assertInterfaceType,
+  buildSchema,
+  parse,
+} from 'graphql';
 
 import { executeSync, execute } from '../execute';
 

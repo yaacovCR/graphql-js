@@ -1,17 +1,15 @@
-import type { Maybe } from '../jsutils/Maybe';
-
-import type { DocumentNode } from '../language/ast';
-
-import { isAggregateOfGraphQLErrors } from '../error/GraphQLAggregateError';
-
-import type { GraphQLSchema } from '../type/schema';
 import type {
+  DocumentNode,
   GraphQLFieldResolver,
+  GraphQLSchema,
   GraphQLTypeResolver,
-} from '../type/definition';
+} from 'graphql';
+
+import type { Maybe } from '../jsutils/Maybe';
 
 import { Executor } from './executor';
 import type { ExecutionResult } from './execute';
+import { isAggregateOfGraphQLErrors } from './GraphQLAggregateError';
 
 export interface SubscriptionArgs {
   schema: GraphQLSchema;
